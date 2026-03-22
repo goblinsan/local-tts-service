@@ -1,0 +1,11 @@
+HTTP/1.1 200 OK
+date: Sun, 22 Mar 2026 16:17:50 GMT
+server: uvicorn
+x-audio-path: generated\assistant_v1_20260322_161751_48f39c2b.wav
+content-type: audio/wav
+accept-ranges: bytes
+content-disposition: attachment; filename="assistant_v1_20260322_161751_48f39c2b.wav"
+content-length: 52844
+last-modified: Sun, 22 Mar 2026 16:17:51 GMT
+etag: "16b1e8eece33625bc97dffef2c40cdba"
+

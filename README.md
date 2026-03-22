@@ -126,3 +126,23 @@ If no command is configured, the service uses a deterministic local fallback WAV
 - Logs write to `logs/app.log` and `logs/access.log`.
 - Log rotation policy is enforced as: rotate after 2 days or 10MB, whichever happens first.
 - Rolled logs auto-purge (default): keep up to 5 rotated files, max age 10 days, and max 200MB of archives per log stream.
+
+## Windows persistent run (outside VS Code)
+
+Install startup launcher (current user, no admin):
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows/install-startup.ps1
+```
+
+Start detached now:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows/start-detached.ps1
+```
+
+Remove startup launcher:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows/uninstall-startup.ps1
+```

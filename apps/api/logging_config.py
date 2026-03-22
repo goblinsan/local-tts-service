@@ -60,7 +60,7 @@ def setup_logging(log_dir: Path) -> None:
                 "format": "%(asctime)s %(levelname)s [%(name)s] %(message)s",
             },
             "access": {
-                "format": "%(asctime)s %(levelname)s [%(name)s] %(client_addr)s - \"%(request_line)s\" %(status_code)s",
+                "format": "%(asctime)s %(levelname)s [%(name)s] %(message)s",
             },
         },
         "handlers": {

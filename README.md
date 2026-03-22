@@ -47,7 +47,7 @@ pip install -r requirements.txt
 3. Run the API from repo root:
 
 ```bash
-uvicorn apps.api.main:app --host 0.0.0.0 --port 5000
+python -m apps.api.run
 ```
 
 4. Verify health:
@@ -123,3 +123,5 @@ If no command is configured, the service uses a deterministic local fallback WAV
 - Service boundary remains clean: agents call HTTP API only.
 - Voices are file-based data in `voices/`.
 - Service is stateless per request.
+- Logs write to `logs/app.log` and `logs/access.log`.
+- Log rotation policy is enforced as: rotate after 2 days or 10MB, whichever happens first.

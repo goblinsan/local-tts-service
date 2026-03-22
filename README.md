@@ -125,3 +125,4 @@ If no command is configured, the service uses a deterministic local fallback WAV
 - Service is stateless per request.
 - Logs write to `logs/app.log` and `logs/access.log`.
 - Log rotation policy is enforced as: rotate after 2 days or 10MB, whichever happens first.
+- Rolled logs auto-purge (default): keep up to 5 rotated files, max age 10 days, and max 200MB of archives per log stream.

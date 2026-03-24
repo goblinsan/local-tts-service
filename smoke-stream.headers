@@ -1,7 +1,0 @@
-HTTP/1.1 200 OK
-date: Sun, 22 Mar 2026 16:17:55 GMT
-server: uvicorn
-x-audio-path: generated\assistant_v1_20260322_161756_628ed025.wav
-content-type: audio/wav
-transfer-encoding: chunked
-

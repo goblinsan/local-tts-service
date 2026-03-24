@@ -1,3 +1,5 @@
 fastapi>=0.115.0,<1.0.0
 uvicorn[standard]>=0.30.0,<1.0.0
 python-multipart>=0.0.9,<1.0.0
+aiofiles>=23.0.0,<25.0.0
+f5-tts>=1.1.4

@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Local TTS Service</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --border: #2a2d3e;
+    --accent: #6c63ff;
+    --accent-dim: #3f3b99;
+    --danger: #e05c5c;
+    --text: #e4e4f0;
+    --muted: #7a7a99;
+    --radius: 10px;
+    --mono: "Cascadia Code", "Fira Code", "Consolas", monospace;
+  }
+  body { background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; font-size: 15px; line-height: 1.6; }
+  header { padding: 20px 32px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 12px; }
+  header h1 { font-size: 1.2rem; font-weight: 600; letter-spacing: .03em; }
+  header .dot { width: 9px; height: 9px; border-radius: 50%; background: #3ecf8e; box-shadow: 0 0 8px #3ecf8e88; }
+  .layout { display: grid; grid-template-columns: 300px 1fr; min-height: calc(100vh - 62px); }
+  .sidebar { border-right: 1px solid var(--border); padding: 24px 16px; display: flex; flex-direction: column; gap: 8px; }
+  .sidebar h2 { font-size: .75rem; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); margin-bottom: 4px; padding: 0 8px; }
+  .voice-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; cursor: pointer; transition: border-color .15s; display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+  .voice-card:hover, .voice-card.active { border-color: var(--accent); }
+  .voice-card .info .name { font-weight: 600; font-size: .95rem; }
+  .voice-card .info .meta { font-size: .78rem; color: var(--muted); margin-top: 2px; }
+  .voice-card .actions { display: flex; gap: 4px; flex-shrink: 0; }
+  .voice-card .icon-btn { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 1.05rem; line-height: 1; padding: 2px 4px; border-radius: 4px; }
+  .voice-card .icon-btn:hover { color: var(--text); }
+  .voice-card .del-btn:hover { color: var(--danger); }
+  .voice-empty { color: var(--muted); font-size: .88rem; padding: 8px; }
+  .meta.warn { color: #ccbb55; }
+
+  .main { padding: 32px; display: flex; flex-direction: column; gap: 32px; }
+
+  .panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; }
+  .panel h2 { font-size: 1rem; font-weight: 600; margin-bottom: 18px; display: flex; align-items: center; gap: 8px; }
+  .panel h2 .badge { font-size: .7rem; background: var(--accent-dim); color: #b8b4ff; padding: 2px 8px; border-radius: 99px; font-weight: 500; }
+
+  label { font-size: .85rem; color: var(--muted); display: block; margin-bottom: 5px; }
+  textarea, select, input[type="text"] {
+    width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 10px 12px; font-size: .93rem; font-family: inherit;
+    resize: vertical; outline: none; transition: border-color .15s;
+  }
+  textarea:focus, select:focus, input[type="text"]:focus { border-color: var(--accent); }
+  .field { margin-bottom: 16px; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; }
+  .row .field { flex: 1; min-width: 180px; }
+
+  button.primary {
+    background: var(--accent); color: #fff; border: none; border-radius: var(--radius);
+    padding: 10px 22px; font-size: .93rem; font-weight: 600; cursor: pointer; transition: background .15s;
+  }
+  button.primary:hover { background: #7c74ff; }
+  button.primary:disabled { background: var(--accent-dim); cursor: not-allowed; opacity: .7; }
+  button.danger {
+    background: var(--danger); color: #fff; border: none; border-radius: var(--radius);
+    padding: 10px 22px; font-size: .93rem; font-weight: 600; cursor: pointer; transition: filter .15s;
+  }
+  button.danger:hover { filter: brightness(1.08); }
+  button.danger:disabled { cursor: not-allowed; opacity: .7; }
+
+  .audio-area { margin-top: 18px; display: none; flex-direction: column; gap: 8px; }
+  .audio-area.visible { display: flex; }
+  .audio-area label { font-size: .8rem; }
+  audio { width: 100%; border-radius: var(--radius); outline: none; }
+  .audio-meta { font-size: .78rem; color: var(--muted); font-family: var(--mono); }
+
+  .drop-zone {
+    border: 2px dashed var(--border); border-radius: var(--radius); padding: 28px 20px;
+    text-align: center; color: var(--muted); cursor: pointer; transition: border-color .15s, background .15s;
+    font-size: .9rem;
+  }
+  .drop-zone:hover, .drop-zone.drag-over { border-color: var(--accent); background: #6c63ff11; color: var(--text); }
+  .drop-zone input[type="file"] { display: none; }
+  .drop-zone .file-chosen { color: var(--accent); font-weight: 600; margin-top: 6px; font-size: .85rem; }
+
+  .status { margin-top: 14px; font-size: .85rem; padding: 10px 14px; border-radius: 8px; display: none; }
+  .status.visible { display: block; }
+  .status.ok { background: #1a3a2a; color: #5dcc95; border: 1px solid #2a5a3a; }
+  .status.error { background: #3a1a1a; color: #e07070; border: 1px solid #5a2a2a; }
+  .status.loading { background: var(--bg); color: var(--muted); border: 1px solid var(--border); }
+
+  .no-voice-warning { background: #2a2a1a; color: #ccbb55; border: 1px solid #4a4a1a; border-radius: 8px; padding: 10px 14px; font-size: .85rem; margin-bottom: 16px; display: none; }
+  .no-voice-warning.visible { display: block; }
+</style>
+</head>
+<body>
+<header>
+  <div class="dot" id="statusDot" title="Health: checking…"></div>
+  <h1>Local TTS Service</h1>
+  <div style="margin-left:auto;color:var(--muted);font-size:.82rem;" id="runtimeMode">Runtime: checking…</div>
+</header>
+
+<div class="layout">
+  <!-- Sidebar: voice library -->
+  <aside class="sidebar">
+    <h2>Voice Library</h2>
+    <div id="voiceList"><div class="voice-empty">Loading…</div></div>
+  </aside>
+
+  <main class="main">
+    <!-- Test TTS -->
+    <div class="panel">
+      <h2>Test TTS <span class="badge">POST /tts</span></h2>
+      <div class="no-voice-warning" id="noVoiceWarning">
+        No voice selected. Pick one from the sidebar or create one below.
+      </div>
+      <div class="field">
+        <label for="ttsText">Text</label>
+        <textarea id="ttsText" rows="4" placeholder="Type something to synthesize…">Hello, this is your local TTS assistant.</textarea>
+      </div>
+      <div class="row">
+        <div class="field">
+          <label for="ttsVoice">Voice</label>
+          <select id="ttsVoice"><option value="">— select —</option></select>
+        </div>
+        <div class="field">
+          <label for="fastMode" style="margin-bottom:10px;">Performance</label>
+          <label style="display:flex;align-items:center;gap:8px;color:var(--text);font-size:.9rem;">
+            <input type="checkbox" id="fastMode" />
+            Fast mode (faster, lower quality)
+          </label>
+        </div>
+        <div class="field" style="display:flex;align-items:flex-end;">
+          <label></label>
+          <button class="primary" id="generateBtn" onclick="generateTTS()">Generate</button>
+        </div>
+      </div>
+      <div class="status" id="ttsStatus"></div>
+      <div class="audio-area" id="audioArea">
+        <label>Output audio</label>
+        <audio id="audioPlayer" controls></audio>
+        <div class="audio-meta" id="audioMeta"></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Voice Metadata <span class="badge">PATCH /voices/:id</span></h2>
+      <div class="field">
+        <label for="selectedVoiceId">Selected Voice</label>
+        <input type="text" id="selectedVoiceId" placeholder="Select a voice from the sidebar" readonly />
+      </div>
+      <div class="field">
+        <label for="voiceTranscript">Reference Transcript</label>
+        <textarea id="voiceTranscript" rows="4" placeholder="Paste the exact words spoken in the first 5-12 seconds of the reference clip."></textarea>
+      </div>
+      <button class="primary" id="saveVoiceBtn" onclick="saveVoiceMetadata()">Save Transcript</button>
+      <div class="status" id="voiceStatus"></div>
+    </div>
+
+    <!-- Create Voice -->
+    <div class="panel">
+      <h2>Create Voice <span class="badge">POST /voices</span></h2>
+      <div class="row">
+        <div class="field">
+          <label for="voiceName">Name</label>
+          <input type="text" id="voiceName" placeholder="My Voice v1" />
+        </div>
+        <div class="field">
+          <label for="voiceDesc">Description</label>
+          <input type="text" id="voiceDesc" placeholder="Short description" />
+        </div>
+      </div>
+      <div class="field">
+        <label for="voiceCreateTranscript">Reference Transcript</label>
+        <textarea id="voiceCreateTranscript" rows="4" placeholder="Paste the exact words spoken in the first 5-12 seconds of the uploaded clip."></textarea>
+      </div>
+      <div class="field">
+        <label>Reference Audio (WAV recommended)</label>
+        <div class="drop-zone" id="dropZone" onclick="document.getElementById('refAudio').click()" ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)">
+          <input type="file" id="refAudio" accept="audio/*" onchange="onFileChosen(event)" />
+          <div>Drop a WAV file here or <strong>click to browse</strong></div>
+          <div class="file-chosen" id="fileChosen"></div>
+        </div>
+      </div>
+      <button class="primary" id="createBtn" onclick="createVoice()">Create Voice</button>
+      <div class="status" id="createStatus"></div>
+    </div>
+
+    <div class="panel">
+      <h2>Generated Files <span class="badge">DELETE /admin/generated/files</span></h2>
+      <div class="field">
+        <label>Maintenance</label>
+        <button class="danger" id="clearGeneratedBtn" onclick="clearGeneratedFiles()">Delete all files in /generated</button>
+      </div>
+      <div class="status" id="generatedStatus"></div>
+    </div>
+  </main>
+</div>
+
+<script>
+const API = '';   // same origin
+let selectedAudioFile = null;
+let voicesById = {};
+let selectedVoiceId = '';
+
+// ── Health check ─────────────────────────────────────────────────────────────
+async function checkHealth() {
+  const dot = document.getElementById('statusDot');
+  try {
+    const r = await fetch(`${API}/health`);
+    const data = await r.json();
+    if (data.status === 'ok') {
+      dot.style.background = '#3ecf8e';
+      dot.style.boxShadow = '0 0 8px #3ecf8e88';
+      dot.title = 'Service: online';
+    } else { throw new Error(); }
+  } catch {
+    dot.style.background = '#e05c5c';
+    dot.style.boxShadow = '0 0 8px #e05c5c88';
+    dot.title = 'Service: offline or unreachable';
+  }
+}
+
+async function checkRuntime() {
+  const el = document.getElementById('runtimeMode');
+  try {
+    const r = await fetch(`${API}/runtime`);
+    const d = await r.json();
+    el.textContent = `Runtime: ${d.device?.toUpperCase() || 'CPU'} • torch ${d.torch_version || 'unknown'}`;
+  } catch {
+    el.textContent = 'Runtime: unknown';
+  }
+}
+
+// ── Voice library ─────────────────────────────────────────────────────────────
+async function loadVoices() {
+  try {
+    const r = await fetch(`${API}/voices`);
+    const data = await r.json();
+    renderVoices(data.voices || []);
+  } catch {
+    document.getElementById('voiceList').innerHTML = '<div class="voice-empty">Failed to load voices.</div>';
+  }
+}
+
+function renderVoices(voices) {
+  const list = document.getElementById('voiceList');
+  const select = document.getElementById('ttsVoice');
+  const currentVal = select.value;
+  voicesById = Object.fromEntries(voices.map(v => [v.id, v]));
+
+  // Sidebar
+  if (!voices.length) {
+    list.innerHTML = '<div class="voice-empty">No voices yet. Create one below.</div>';
+  } else {
+    list.innerHTML = voices.map(v => `
+      <div class="voice-card" id="card-${v.id}" onclick="selectVoice('${v.id}')">
+        <div class="info">
+          <div class="name">${esc(v.name)}</div>
+          <div class="meta">${esc(v.id)} • ${esc(v.created_at || '')}</div>
+          ${v.description ? `<div class="meta">${esc(v.description)}</div>` : ''}
+          <div class="meta ${v.transcript ? '' : 'warn'}">${v.transcript ? 'Transcript saved' : 'Transcript missing'}</div>
+        </div>
+        <div class="actions">
+          <button class="icon-btn" title="Edit transcript" onclick="editVoiceTranscript(event,'${v.id}')">✎</button>
+          <button class="icon-btn del-btn" title="Delete voice" onclick="deleteVoice(event,'${v.id}')">✕</button>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  // Select
+  select.innerHTML = '<option value="">— select —</option>' +
+    voices.map(v => `<option value="${v.id}"${v.id === currentVal ? ' selected' : ''}>${esc(v.name)} (${v.id})</option>`).join('');
+
+  updateNoVoiceWarning(voices);
+}
+
+function selectVoice(id) {
+  selectedVoiceId = id;
+  document.querySelectorAll('.voice-card').forEach(c => c.classList.toggle('active', c.id === `card-${id}`));
+  document.getElementById('ttsVoice').value = id;
+  document.getElementById('selectedVoiceId').value = id;
+  document.getElementById('voiceTranscript').value = (voicesById[id]?.transcript || '');
+}
+
+function updateNoVoiceWarning(voices) {
+  const warn = document.getElementById('noVoiceWarning');
+  warn.classList.toggle('visible', voices.length === 0);
+}
+
+// ── Delete voice ──────────────────────────────────────────────────────────────
+async function deleteVoice(event, id) {
+  event.stopPropagation();
+  if (!confirm(`Delete voice "${id}"?`)) return;
+  try {
+    const r = await fetch(`${API}/voices/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    if (!r.ok) throw new Error(await r.text());
+    loadVoices();
+  } catch (e) {
+    alert(`Delete failed: ${e.message}`);
+  }
+}
+
+function editVoiceTranscript(event, id) {
+  event.stopPropagation();
+  selectVoice(id);
+  document.getElementById('voiceTranscript').focus();
+}
+
+async function saveVoiceMetadata() {
+  const statusEl = document.getElementById('voiceStatus');
+  const btn = document.getElementById('saveVoiceBtn');
+  const transcript = document.getElementById('voiceTranscript').value.trim();
+
+  if (!selectedVoiceId) {
+    setStatus(statusEl, 'error', 'Select a voice first.');
+    return;
+  }
+  if (!transcript) {
+    setStatus(statusEl, 'error', 'Transcript is required for reliable F5 generation.');
+    return;
+  }
+
+  btn.disabled = true;
+  setStatus(statusEl, 'loading', 'Saving transcript…');
+
+  try {
+    const r = await fetch(`${API}/voices/${encodeURIComponent(selectedVoiceId)}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ transcript }),
+    });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({ detail: r.statusText }));
+      throw new Error(err.detail || r.statusText);
+    }
+    setStatus(statusEl, 'ok', 'Transcript saved.');
+    await loadVoices();
+    selectVoice(selectedVoiceId);
+  } catch (e) {
+    setStatus(statusEl, 'error', `Error: ${e.message}`);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ── Generate TTS ──────────────────────────────────────────────────────────────
+async function generateTTS() {
+  const text = document.getElementById('ttsText').value.trim();
+  const voice = document.getElementById('ttsVoice').value;
+  const btn = document.getElementById('generateBtn');
+  const statusEl = document.getElementById('ttsStatus');
+  const audioArea = document.getElementById('audioArea');
+  const player = document.getElementById('audioPlayer');
+  const meta = document.getElementById('audioMeta');
+  const fastMode = document.getElementById('fastMode').checked;
+
+  if (!text) { setStatus(statusEl, 'error', 'Enter some text first.'); return; }
+  if (!voice) { setStatus(statusEl, 'error', 'Select a voice first.'); return; }
+
+  btn.disabled = true;
+  setStatus(statusEl, 'loading', 'Generating…');
+  audioArea.classList.remove('visible');
+
+  try {
+    const style = fastMode
+      ? { nfe_step: 12, speed: 1.08, cfg_strength: 1.8 }
+      : { nfe_step: 20, speed: 1.0, cfg_strength: 2.0 };
+
+    const r = await fetch(`${API}/tts`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text, voice, format: 'wav', style }),
+    });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({ detail: r.statusText }));
+      throw new Error(err.detail || r.statusText);
+    }
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    player.src = url;
+    const sizeKb = (blob.size / 1024).toFixed(1);
+    meta.textContent = `${sizeKb} KB · audio/wav`;
+    audioArea.classList.add('visible');
+    player.play();
+    setStatus(statusEl, 'ok', 'Speech generated.');
+  } catch (e) {
+    setStatus(statusEl, 'error', `Error: ${e.message}`);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ── Create voice ──────────────────────────────────────────────────────────────
+function onDragOver(e) { e.preventDefault(); document.getElementById('dropZone').classList.add('drag-over'); }
+function onDragLeave() { document.getElementById('dropZone').classList.remove('drag-over'); }
+function onDrop(e) {
+  e.preventDefault();
+  document.getElementById('dropZone').classList.remove('drag-over');
+  const f = e.dataTransfer.files[0];
+  if (f) setFile(f);
+}
+function onFileChosen(e) { if (e.target.files[0]) setFile(e.target.files[0]); }
+function setFile(f) {
+  selectedAudioFile = f;
+  document.getElementById('fileChosen').textContent = `${f.name} (${(f.size/1024).toFixed(1)} KB)`;
+}
+
+async function createVoice() {
+  const name = document.getElementById('voiceName').value.trim() || 'Custom Voice';
+  const desc = document.getElementById('voiceDesc').value.trim();
+  const transcript = document.getElementById('voiceCreateTranscript').value.trim();
+  const btn = document.getElementById('createBtn');
+  const statusEl = document.getElementById('createStatus');
+
+  if (!selectedAudioFile) { setStatus(statusEl, 'error', 'Upload a reference audio file first.'); return; }
+  if (!transcript) { setStatus(statusEl, 'error', 'Reference transcript is required for reliable F5 generation.'); return; }
+
+  btn.disabled = true;
+  setStatus(statusEl, 'loading', 'Creating voice…');
+
+  const form = new FormData();
+  form.append('reference_audio', selectedAudioFile, selectedAudioFile.name);
+  form.append('name', name);
+  form.append('description', desc);
+  form.append('source', 'recorded');
+  form.append('transcript', transcript);
+
+  try {
+    const r = await fetch(`${API}/voices`, { method: 'POST', body: form });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({ detail: r.statusText }));
+      throw new Error(err.detail || r.statusText);
+    }
+    const data = await r.json();
+    setStatus(statusEl, 'ok', `Voice created: ${data.voice_id}`);
+    document.getElementById('voiceName').value = '';
+    document.getElementById('voiceDesc').value = '';
+    document.getElementById('voiceCreateTranscript').value = '';
+    document.getElementById('fileChosen').textContent = '';
+    selectedAudioFile = null;
+    await loadVoices();
+    selectVoice(data.voice_id);
+  } catch (e) {
+    setStatus(statusEl, 'error', `Error: ${e.message}`);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function clearGeneratedFiles() {
+  const statusEl = document.getElementById('generatedStatus');
+  const btn = document.getElementById('clearGeneratedBtn');
+  if (!confirm('Delete all files in /generated? The directory will be kept.')) return;
+
+  btn.disabled = true;
+  setStatus(statusEl, 'loading', 'Deleting generated files…');
+
+  try {
+    const r = await fetch(`${API}/admin/generated/files`, { method: 'DELETE' });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({ detail: r.statusText }));
+      throw new Error(err.detail || r.statusText);
+    }
+
+    const data = await r.json();
+    const mbFreed = (Number(data.bytes_freed || 0) / (1024 * 1024)).toFixed(2);
+    const failedCount = Array.isArray(data.failed_files) ? data.failed_files.length : 0;
+    setStatus(
+      statusEl,
+      failedCount ? 'error' : 'ok',
+      `Deleted ${data.deleted_files || 0} file(s), freed ${mbFreed} MB, skipped ${data.skipped_entries || 0} entr${(data.skipped_entries || 0) === 1 ? 'y' : 'ies'}${failedCount ? `, failed ${failedCount}` : ''}.`
+    );
+  } catch (e) {
+    setStatus(statusEl, 'error', `Error: ${e.message}`);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function setStatus(el, type, msg) {
+  el.className = `status ${type} visible`;
+  el.textContent = msg;
+}
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+checkHealth();
+checkRuntime();
+loadVoices();
+setInterval(checkHealth, 30000);
+</script>
+</body>
+</html>

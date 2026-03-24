@@ -1,8 +1,15 @@
 __pycache__/
 *.pyc
 .venv/
+.venv*/
 venv/
+env/
+.env/
 .env
 generated/*.wav
 logs/*.log
 logs/*.log.*
+
+voices/*
+!voices/james/
+!voices/james/**

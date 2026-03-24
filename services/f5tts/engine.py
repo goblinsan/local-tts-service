@@ -4,11 +4,14 @@ import json
 import math
 import struct
 import subprocess
+import sys
 import tempfile
 import wave
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from services.f5tts.inprocess import ENGINE
 
 
 @dataclass(slots=True)
@@ -16,6 +19,7 @@ class SpeechRequest:
     text: str
     voice_path: Path
     output_path: Path
+    reference_text: str | None = None
     style: dict[str, Any] | None = None
 
 
@@ -23,22 +27,49 @@ class TTSService:
     def __init__(self, config: dict[str, Any] | None = None) -> None:
         self.config = config or {}
 
+    def _inference_option(self, key: str, default: float | int, style: dict[str, Any] | None) -> float | int:
+        if style and key in style and isinstance(style[key], (int, float)):
+            return style[key]
+        return self.config.get("f5tts", {}).get("inference", {}).get(key, default)
+
     def generate_speech(self, request: SpeechRequest) -> Path:
         request.output_path.parent.mkdir(parents=True, exist_ok=True)
-        if self._try_external_engine(request):
-            return request.output_path
+        command = self.config.get("f5tts", {}).get("command")
+        if command:
+            success, attempted, error_text = self._try_external_engine(request, command)
+            if success:
+                return request.output_path
+            if attempted:
+                raise RuntimeError(error_text or "External TTS engine failed")
+        else:
+            try:
+                ENGINE.generate(
+                    text=request.text,
+                    voice_path=str(request.voice_path),
+                    output_path=str(request.output_path),
+                    reference_text=request.reference_text or "",
+                    speed=float(self._inference_option("speed", 1.0, request.style)),
+                    nfe_step=int(self._inference_option("nfe_step", 16, request.style)),
+                    cfg_strength=float(self._inference_option("cfg_strength", 2.0, request.style)),
+                )
+                if request.output_path.exists() and request.output_path.stat().st_size > 0:
+                    return request.output_path
+                raise RuntimeError("In-process F5-TTS did not produce output file")
+            except Exception as error:
+                raise RuntimeError(str(error)) from error
+
         self._generate_fallback_wave(request)
         return request.output_path
 
-    def _try_external_engine(self, request: SpeechRequest) -> bool:
-        command = self.config.get("f5tts", {}).get("command")
+    def _try_external_engine(self, request: SpeechRequest, command: list[str]) -> tuple[bool, bool, str]:
         if not command:
-            return False
+            return False, False, ""
 
         payload = {
             "text": request.text,
             "voice_path": str(request.voice_path),
             "output_path": str(request.output_path),
+            "reference_text": request.reference_text or "",
             "style": request.style or {},
         }
 
@@ -50,10 +81,11 @@ class TTSService:
         try:
             completed = subprocess.run(full_command, capture_output=True, text=True, check=False)
             if completed.returncode != 0:
-                return False
-            return request.output_path.exists()
+                error_text = (completed.stderr or completed.stdout or "").strip()
+                return False, True, error_text
+            return request.output_path.exists(), True, ""
         except FileNotFoundError:
-            return False
+            return False, False, ""
 
     def _generate_fallback_wave(self, request: SpeechRequest) -> None:
         sample_rate = 24000

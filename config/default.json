@@ -1,5 +1,10 @@
 {
   "f5tts": {
-    "command": []
+    "command": null,
+    "inference": {
+      "nfe_step": 28,
+      "speed": 0.95,
+      "cfg_strength": 2.2
+    }
   }
 }

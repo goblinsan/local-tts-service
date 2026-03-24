@@ -1,8 +1,18 @@
 $ErrorActionPreference = 'Stop'
 
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
-$pythonw = Join-Path $root '.venv\Scripts\pythonw.exe'
-$python = Join-Path $root '.venv\Scripts\python.exe'
+$pythonw = Join-Path $root '.venv311cuda\Scripts\pythonw.exe'
+$python = Join-Path $root '.venv311cuda\Scripts\python.exe'
+
+if (-not (Test-Path $python)) {
+  $pythonw = Join-Path $root '.venv311\Scripts\pythonw.exe'
+  $python = Join-Path $root '.venv311\Scripts\python.exe'
+}
+
+if (-not (Test-Path $python)) {
+  $pythonw = Join-Path $root '.venv\Scripts\pythonw.exe'
+  $python = Join-Path $root '.venv\Scripts\python.exe'
+}
 
 if (-not (Test-Path $pythonw)) {
   if (-not (Test-Path $python)) {

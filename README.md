@@ -1,43 +1,25 @@
 # local-tts-service
 
-Local, offline Text-to-Speech service with a clean HTTP boundary for agents and gateway integration.
+Local/offline HTTP TTS service (FastAPI) with voice management, static local UI, and Windows detached startup scripts.
 
-## Implemented features
+## What this service provides
 
-- `POST /tts` generates and returns a WAV file.
-- `POST /tts/stream` streams WAV bytes.
-- `GET /voices` lists versioned local voices.
-- `POST /voices` creates a new voice from reference audio.
-- `POST /voices/create` alias for voice creation pipeline compatibility.
-- `DELETE /voices/{id}` removes a voice.
-- `GET /health` basic health probe.
+- TTS generation as WAV files (`POST /tts`, `POST /tts/stream`)
+- Voice library management on local disk (`GET/POST/PATCH/DELETE /voices...`)
+- Browser UI at `/` (redirects to `/static/index.html`) for testing TTS and managing voices
+- Runtime diagnostics endpoint (`GET /runtime`) for CPU/CUDA visibility
+- Admin cleanup endpoint for generated outputs (`DELETE /admin/generated/files`)
+- Rolling log files with retention controls
 
-## Project layout
+## Prerequisites
 
-```text
-local-tts-service/
-	apps/
-		api/
-			main.py
-	services/
-		f5tts/
-			engine.py
-	voices/
-		assistant_v1/
-			sample.wav
-			metadata.json
-	generated/
-	scripts/
-	infra/
-		docker/
-		systemd/
-	config/
-		default.json
-```
+- Python 3.10+ (3.11 recommended for current F5-TTS/Torch compatibility)
+- FFmpeg available on PATH for voice creation/upload normalization
+	- On Windows, a shared build is recommended (e.g. `Gyan.FFmpeg.Shared`) so dependent DLLs resolve correctly.
 
 ## Quick start
 
-1. Create and activate a Python environment.
+1. Create/activate your environment.
 2. Install dependencies:
 
 ```bash
@@ -50,21 +32,24 @@ pip install -r requirements.txt
 python -m apps.api.run
 ```
 
-4. Verify health:
+4. Open:
+	 - UI: `http://localhost:5000/`
+	 - Health: `http://localhost:5000/health`
 
-```bash
-curl http://localhost:5000/health
-```
+## API summary
 
-## API examples
+- `GET /health` - basic liveness check.
+- `GET /runtime` - runtime info (`device`, `cuda_available`, `torch_version`).
+- `GET /voices` - list voices from `voices/<voice_id>/metadata.json`.
+- `POST /voices` - create voice from uploaded reference audio (normalizes to mono 24k WAV).
+- `POST /voices/create` - alias for `POST /voices`.
+- `PATCH /voices/{voice_id}` - update voice metadata (`name`, `description`, `transcript`).
+- `DELETE /voices/{voice_id}` - delete one voice directory.
+- `POST /tts` - generate WAV and return file response.
+- `POST /tts/stream` - generate WAV and stream bytes.
+- `DELETE /admin/generated/files` - delete files inside `generated/` (does not remove the directory).
 
-### List voices
-
-```bash
-curl http://localhost:5000/voices
-```
-
-### Generate speech
+### Generate speech example
 
 ```bash
 curl -X POST http://localhost:5000/tts \
@@ -77,59 +62,88 @@ curl -X POST http://localhost:5000/tts \
 	--output out.wav -i
 ```
 
-Response includes `X-Audio-Path` header pointing to the stored file under `generated/`.
+Response includes `X-Audio-Path` with the generated file location under `generated/`.
 
-### Stream speech
-
-```bash
-curl -X POST http://localhost:5000/tts/stream \
-	-H "content-type: application/json" \
-	-d '{
-		"text": "Streaming demo",
-		"voice": "assistant_v1",
-		"format": "wav"
-	}' \
-	--output stream.wav -i
-```
-
-### Create voice
+### Create voice example
 
 ```bash
 curl -X POST http://localhost:5000/voices \
 	-F "reference_audio=@sample.wav" \
 	-F "name=Assistant Voice v2" \
 	-F "description=Neutral helpful assistant" \
-	-F "source=recorded"
+	-F "source=recorded" \
+	-F "transcript=Hello, this is a sample of my voice"
 ```
 
-## F5-TTS integration hook
+### Update transcript example
 
-`services/f5tts/engine.py` supports an external command hook via `config/default.json`:
+```bash
+curl -X PATCH http://localhost:5000/voices/assistant_v1 \
+	-H "content-type: application/json" \
+	-d '{"transcript":"Hello, this is a sample of my voice"}'
+```
+
+### Clear generated files example
+
+```bash
+curl -X DELETE http://localhost:5000/admin/generated/files
+```
+
+## Voice data requirements
+
+- Each voice is stored at `voices/<voice_id>/`.
+- Required files/fields for reliable TTS:
+	- `sample.wav` (non-empty, normalized WAV)
+	- `metadata.json` with `transcript`
+- TTS requests are rejected if transcript metadata is missing.
+
+## Local UI
+
+The built-in page (`/`) supports:
+
+- Listing/selecting/deleting voices
+- Editing and saving per-voice transcript metadata
+- Creating voices via audio upload
+- Running TTS tests with standard and fast mode
+- Clearing generated files via admin maintenance action
+- Viewing runtime mode (CPU/CUDA) in header
+
+## Configuration
+
+`config/default.json` controls F5 settings.
+
+Current pattern:
 
 ```json
 {
 	"f5tts": {
-		"command": ["python", "services/f5tts/your_f5_runner.py"]
+		"command": null,
+		"inference": {
+			"nfe_step": 28,
+			"speed": 0.95,
+			"cfg_strength": 2.2
+		}
 	}
 }
 ```
 
-The command receives a temporary payload JSON path as its final argument and should write WAV to `output_path`.
+- `command: null` uses in-process generation.
+- If you set `command`, it should accept a payload JSON path as final arg and write output WAV to `output_path`.
 
-If no command is configured, the service uses a deterministic local fallback WAV generator so APIs remain functional offline.
+## Logs and retention
 
-## Notes
-
-- Service boundary remains clean: agents call HTTP API only.
-- Voices are file-based data in `voices/`.
-- Service is stateless per request.
-- Logs write to `logs/app.log` and `logs/access.log`.
-- Log rotation policy is enforced as: rotate after 2 days or 10MB, whichever happens first.
-- Rolled logs auto-purge (default): keep up to 5 rotated files, max age 10 days, and max 200MB of archives per log stream.
+- Logs are written to `logs/app.log` and `logs/access.log`.
+- Rotation triggers on either condition:
+	- every 2 days, or
+	- file size >= 10 MB
+- Retention/purge defaults:
+	- keep up to 5 rotated files
+	- delete archives older than 10 days
+	- cap rotated archive size at 200 MB per stream
 
 ## Windows persistent run (outside VS Code)
 
-Install startup launcher (current user, no admin):
+Install startup launcher (current user):
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows/install-startup.ps1
@@ -145,4 +159,32 @@ Remove startup launcher:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows/uninstall-startup.ps1
+```
+
+`start-detached.ps1` chooses Python env in this order when present:
+
+1. `.venv311cuda`
+2. `.venv311`
+3. `.venv`
+
+## Project layout
+
+```text
+local-tts-service/
+	apps/
+		api/
+			main.py
+			run.py
+			static/
+				index.html
+	services/
+		f5tts/
+	voices/
+	generated/
+	logs/
+	scripts/
+		windows/
+	infra/
+	config/
+		default.json
 ```

@@ -2,9 +2,9 @@
   "f5tts": {
     "command": null,
     "inference": {
-      "nfe_step": 28,
-      "speed": 0.95,
-      "cfg_strength": 2.2
+      "nfe_step": 12,
+      "speed": 1.08,
+      "cfg_strength": 1.8
     }
   }
 }

@@ -14,7 +14,10 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     HF_HOME=/cache/huggingface \
-    TORCH_HOME=/cache/torch
+    TORCH_HOME=/cache/torch \
+    TTS_CLEANUP_ENABLED=1 \
+    TTS_CLEANUP_MAX_AGE_HOURS=24 \
+    TTS_CLEANUP_INTERVAL_MINUTES=60
 
 # System deps: python 3.11 (via deadsnakes), ffmpeg, build tooling for any
 # packages without prebuilt wheels.

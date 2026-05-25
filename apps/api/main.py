@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 import os
 import shutil
 import subprocess
 import tempfile
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -26,6 +29,17 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 app = FastAPI(title="local-tts-service", version="0.1.0")
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+logger = logging.getLogger(__name__)
+
+# Background cleanup of generated audio files. Tunable via environment.
+#   TTS_CLEANUP_MAX_AGE_HOURS    (default 24)  -- files older than this are deleted
+#   TTS_CLEANUP_INTERVAL_MINUTES (default 60)  -- how often to scan
+#   TTS_CLEANUP_ENABLED          (default "1") -- set to "0" to disable
+_CLEANUP_MAX_AGE_HOURS = float(os.environ.get("TTS_CLEANUP_MAX_AGE_HOURS", "24"))
+_CLEANUP_INTERVAL_MINUTES = float(os.environ.get("TTS_CLEANUP_INTERVAL_MINUTES", "60"))
+_CLEANUP_ENABLED = os.environ.get("TTS_CLEANUP_ENABLED", "1").strip().lower() not in {"0", "false", "no", ""}
+_cleanup_task: asyncio.Task[None] | None = None
 
 
 def _load_config() -> dict[str, Any]:
@@ -154,9 +168,79 @@ def _prepare_reference_text(raw_text: str) -> str:
     return text[:220]
 
 
+def _prune_generated_files(max_age_seconds: float) -> dict[str, int]:
+    """Delete generated audio files whose mtime is older than max_age_seconds."""
+    cutoff = time.time() - max_age_seconds
+    deleted = 0
+    bytes_freed = 0
+    failed = 0
+    if not GENERATED_DIR.exists():
+        return {"deleted": 0, "bytes_freed": 0, "failed": 0}
+    for entry in GENERATED_DIR.iterdir():
+        if not entry.is_file():
+            continue
+        try:
+            stat = entry.stat()
+        except OSError:
+            failed += 1
+            continue
+        if stat.st_mtime > cutoff:
+            continue
+        try:
+            entry.unlink(missing_ok=True)
+            deleted += 1
+            bytes_freed += stat.st_size
+        except OSError as error:
+            failed += 1
+            logger.warning("cleanup: failed to delete %s: %s", entry.name, error)
+    if deleted or failed:
+        logger.info(
+            "cleanup: deleted %d file(s), freed %d byte(s), %d failure(s) (max_age=%.1fh)",
+            deleted, bytes_freed, failed, max_age_seconds / 3600,
+        )
+    return {"deleted": deleted, "bytes_freed": bytes_freed, "failed": failed}
+
+
+async def _generated_cleanup_loop() -> None:
+    max_age_seconds = max(_CLEANUP_MAX_AGE_HOURS, 0.0) * 3600
+    interval_seconds = max(_CLEANUP_INTERVAL_MINUTES, 1.0) * 60
+    logger.info(
+        "cleanup: starting background sweeper (max_age=%.1fh, interval=%.1fm)",
+        _CLEANUP_MAX_AGE_HOURS, _CLEANUP_INTERVAL_MINUTES,
+    )
+    while True:
+        try:
+            await asyncio.to_thread(_prune_generated_files, max_age_seconds)
+        except Exception as error:  # noqa: BLE001
+            logger.exception("cleanup: sweep failed: %s", error)
+        try:
+            await asyncio.sleep(interval_seconds)
+        except asyncio.CancelledError:
+            logger.info("cleanup: background sweeper cancelled")
+            raise
+
+
 @app.on_event("startup")
-def on_startup() -> None:
+async def on_startup() -> None:
     _ensure_dirs()
+    global _cleanup_task
+    if _CLEANUP_ENABLED and _cleanup_task is None:
+        _cleanup_task = asyncio.create_task(_generated_cleanup_loop())
+    elif not _CLEANUP_ENABLED:
+        logger.info("cleanup: disabled via TTS_CLEANUP_ENABLED")
+
+
+@app.on_event("shutdown")
+async def on_shutdown() -> None:
+    global _cleanup_task
+    task = _cleanup_task
+    _cleanup_task = None
+    if task is not None:
+        task.cancel()
+        try:
+            await task
+        except (asyncio.CancelledError, Exception):  # noqa: BLE001
+            pass
 
 
 class TTSRequest(BaseModel):

@@ -1,0 +1,11 @@
+.git
+.gitignore
+.venv*
+__pycache__
+*.pyc
+logs/*.log
+logs/*.log.*
+generated/*.wav
+infra/
+local-tts-service-spec.md
+README.md

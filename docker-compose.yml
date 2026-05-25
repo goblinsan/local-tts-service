@@ -1,0 +1,29 @@
+# Local-dev compose file.
+#
+# In production this service is managed by gateway-control-plane, which
+# generates its own compose stack from the workload definition. This file
+# exists so the image can be built and exercised standalone on a GPU host.
+services:
+  local-tts:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: local-tts-service:dev
+    container_name: local-tts-service
+    restart: unless-stopped
+    runtime: nvidia
+    environment:
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./voices:/app/voices
+      - ./generated:/app/generated
+      - ./logs:/app/logs
+      - hf-cache:/cache/huggingface
+      - torch-cache:/cache/torch
+
+volumes:
+  hf-cache:
+  torch-cache:

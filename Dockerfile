@@ -40,7 +40,7 @@ WORKDIR /app
 # caches independently of the application code.
 RUN python -m pip install --no-cache-dir \
         --index-url https://download.pytorch.org/whl/cu130 \
-        "torch==2.12.0+cu130" "torchaudio==2.12.0+cu130"
+        "torch==2.12.0+cu130" "torchaudio==2.11.0+cu130"
 
 COPY requirements.txt ./
 RUN python -m pip install --no-cache-dir -r requirements.txt
